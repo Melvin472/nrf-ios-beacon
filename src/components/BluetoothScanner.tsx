@@ -26,13 +26,16 @@ const BluetoothScanner = ({ onDeviceSelect }: BluetoothScannerProps) => {
       setIsScanning(true);
       setDevices([]);
 
+      console.log("Initialisation du Bluetooth...");
       await BleClient.initialize();
       
+      console.log("Démarrage du scan BLE (30 secondes)...");
       await BleClient.requestLEScan(
         { 
           allowDuplicates: false,
         },
         (result) => {
+          console.log("Appareil trouvé:", result.device);
           setDevices((prev) => {
             const exists = prev.find((d) => d.deviceId === result.device.deviceId);
             if (exists) return prev;
@@ -44,18 +47,19 @@ const BluetoothScanner = ({ onDeviceSelect }: BluetoothScannerProps) => {
       setTimeout(async () => {
         await BleClient.stopLEScan();
         setIsScanning(false);
-      }, 10000);
+        console.log("Scan terminé");
+      }, 30000);
 
       toast({
         title: "Scan démarré",
-        description: "Recherche d'appareils BLE en cours...",
+        description: "Recherche de tous les appareils BLE (30 sec)...",
       });
     } catch (error) {
-      console.error("Erreur de scan:", error);
+      console.error("Erreur de scan détaillée:", error);
       setIsScanning(false);
       toast({
-        title: "Erreur",
-        description: "Impossible de démarrer le scan Bluetooth",
+        title: "Erreur Bluetooth",
+        description: error instanceof Error ? error.message : "Vérifiez que le Bluetooth est activé et les permissions accordées",
         variant: "destructive",
       });
     }
