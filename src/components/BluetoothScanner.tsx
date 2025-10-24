@@ -28,6 +28,14 @@ const BluetoothScanner = ({ onDeviceSelect }: BluetoothScannerProps) => {
 
       console.log("Initialisation du Bluetooth...");
       await BleClient.initialize();
+
+      console.log("Demande des permissions Bluetooth...");
+      const enabled = await BleClient.isEnabled();
+      console.log("Bluetooth activé:", enabled);
+      
+      if (!enabled) {
+        await BleClient.enable();
+      }
       
       console.log("Démarrage du scan BLE (30 secondes)...");
       await BleClient.requestLEScan(
@@ -47,12 +55,22 @@ const BluetoothScanner = ({ onDeviceSelect }: BluetoothScannerProps) => {
       setTimeout(async () => {
         await BleClient.stopLEScan();
         setIsScanning(false);
-        console.log("Scan terminé");
+        const count = devices.length;
+        console.log(`Scan terminé - ${count} appareil(s) trouvé(s)`);
+        
+        if (count === 0) {
+          toast({
+            title: "Aucun appareil trouvé",
+            description: "Vérifiez que vos beacons BLE sont allumés, à proximité (<10m) et que le Bluetooth est activé.",
+            variant: "destructive",
+          });
+        }
       }, 30000);
 
       toast({
         title: "Scan démarré",
-        description: "Recherche de tous les appareils BLE (30 sec)...",
+        description: "Recherche de tous les appareils BLE (30 sec)... Assurez-vous que vos beacons sont allumés et à proximité.",
+        duration: 5000,
       });
     } catch (error) {
       console.error("Erreur de scan détaillée:", error);
