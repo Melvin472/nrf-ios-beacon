@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Bluetooth, Loader2, Radio } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Bluetooth, Loader2, Radio, Smartphone } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { BleClient, BleDevice } from "@capacitor-community/bluetooth-le";
+import { Capacitor } from "@capacitor/core";
 
 interface BluetoothScannerProps {
   onDeviceSelect: (device: BleDevice) => void;
@@ -12,7 +14,12 @@ interface BluetoothScannerProps {
 const BluetoothScanner = ({ onDeviceSelect }: BluetoothScannerProps) => {
   const [isScanning, setIsScanning] = useState(false);
   const [devices, setDevices] = useState<BleDevice[]>([]);
+  const [isNativePlatform, setIsNativePlatform] = useState(true);
   const { toast } = useToast();
+
+  useEffect(() => {
+    setIsNativePlatform(Capacitor.isNativePlatform());
+  }, []);
 
   const startScan = async () => {
     try {
@@ -65,6 +72,24 @@ const BluetoothScanner = ({ onDeviceSelect }: BluetoothScannerProps) => {
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {!isNativePlatform && (
+        <Alert className="bg-gradient-card border-primary/20">
+          <Smartphone className="h-5 w-5" />
+          <AlertTitle>Environnement Web Détecté</AlertTitle>
+          <AlertDescription>
+            Le Bluetooth nécessite un appareil iOS réel. Pour tester l'application :
+            <ol className="list-decimal ml-4 mt-2 space-y-1">
+              <li>Exportez vers Github</li>
+              <li>Clonez et installez : <code className="text-xs bg-muted px-1 py-0.5 rounded">npm install</code></li>
+              <li>Ajoutez iOS : <code className="text-xs bg-muted px-1 py-0.5 rounded">npx cap add ios</code></li>
+              <li>Buildez : <code className="text-xs bg-muted px-1 py-0.5 rounded">npm run build</code></li>
+              <li>Synchronisez : <code className="text-xs bg-muted px-1 py-0.5 rounded">npx cap sync ios</code></li>
+              <li>Ouvrez dans Xcode : <code className="text-xs bg-muted px-1 py-0.5 rounded">npx cap open ios</code></li>
+            </ol>
+          </AlertDescription>
+        </Alert>
+      )}
+      
       <div className="text-center space-y-4">
         <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-primary shadow-glow">
           <Bluetooth className="w-10 h-10 text-primary-foreground" />
