@@ -74,6 +74,9 @@ const DeviceConnection = ({ device, onDisconnect }: DeviceConnectionProps) => {
       // Lire les caractéristiques standard pour informations lisibles
       await readStandardCharacteristics(discoveredServices);
 
+      // Lire toutes les données disponibles immédiatement
+      await readAllCharacteristics(discoveredServices);
+
       // Lire les caractéristiques disponibles pour notifications
       for (const service of discoveredServices) {
         for (const characteristic of service.characteristics) {
@@ -104,6 +107,38 @@ const DeviceConnection = ({ device, onDisconnect }: DeviceConnectionProps) => {
         description: "Impossible de se connecter à l'appareil",
         variant: "destructive",
       });
+    }
+  };
+
+  const readAllCharacteristics = async (discoveredServices: BleService[]) => {
+    const dataList: string[] = [];
+
+    for (const service of discoveredServices) {
+      for (const char of service.characteristics) {
+        if (char.properties.read) {
+          try {
+            const value = await BleClient.read(device.deviceId, service.uuid, char.uuid);
+            const decoder = new TextDecoder();
+            let text = decoder.decode(value);
+            
+            // Si c'est des données binaires, afficher en hexadécimal
+            if (!text || text.includes('�')) {
+              const hex = Array.from(new Uint8Array(value.buffer))
+                .map(b => b.toString(16).padStart(2, '0'))
+                .join(' ');
+              text = `[HEX] ${hex}`;
+            }
+            
+            dataList.push(`${service.uuid.substring(0, 8)}: ${text}`);
+          } catch (e) {
+            console.log(`Impossible de lire ${char.uuid}`, e);
+          }
+        }
+      }
+    }
+
+    if (dataList.length > 0) {
+      setReceivedData(dataList);
     }
   };
 
