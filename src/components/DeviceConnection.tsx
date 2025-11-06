@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Bluetooth, Unplug, Activity, Loader2, Signal, Info, Cpu, Zap } from "lucide-react";
+import { Bluetooth, Unplug, Activity, Loader2, Signal, Info, Cpu, Zap, Battery, Smartphone } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { BleClient, BleDevice, BleService } from "@capacitor-community/bluetooth-le";
 import DataDisplay from "./DataDisplay";
@@ -22,6 +22,14 @@ const DeviceConnection = ({ device, onDisconnect }: DeviceConnectionProps) => {
     rssi: 0,
     servicesCount: 0,
     characteristicsCount: 0,
+  });
+  const [readableInfo, setReadableInfo] = useState({
+    batteryLevel: null as number | null,
+    manufacturer: null as string | null,
+    modelNumber: null as string | null,
+    serialNumber: null as string | null,
+    firmwareVersion: null as string | null,
+    hardwareVersion: null as string | null,
   });
   const { toast } = useToast();
 
@@ -63,7 +71,10 @@ const DeviceConnection = ({ device, onDisconnect }: DeviceConnectionProps) => {
         characteristicsCount: charCount,
       });
 
-      // Lire les caractéristiques disponibles
+      // Lire les caractéristiques standard pour informations lisibles
+      await readStandardCharacteristics(discoveredServices);
+
+      // Lire les caractéristiques disponibles pour notifications
       for (const service of discoveredServices) {
         for (const characteristic of service.characteristics) {
           try {
@@ -94,6 +105,69 @@ const DeviceConnection = ({ device, onDisconnect }: DeviceConnectionProps) => {
         variant: "destructive",
       });
     }
+  };
+
+  const readStandardCharacteristics = async (discoveredServices: BleService[]) => {
+    const newReadableInfo = { ...readableInfo };
+
+    for (const service of discoveredServices) {
+      try {
+        // Battery Service (0x180F)
+        if (service.uuid.toLowerCase().includes('180f')) {
+          for (const char of service.characteristics) {
+            if (char.uuid.toLowerCase().includes('2a19') && char.properties.read) {
+              try {
+                const value = await BleClient.read(device.deviceId, service.uuid, char.uuid);
+                const batteryLevel = new DataView(value.buffer).getUint8(0);
+                newReadableInfo.batteryLevel = batteryLevel;
+              } catch (e) {
+                console.log("Impossible de lire le niveau de batterie", e);
+              }
+            }
+          }
+        }
+
+        // Device Information Service (0x180A)
+        if (service.uuid.toLowerCase().includes('180a')) {
+          for (const char of service.characteristics) {
+            if (char.properties.read) {
+              try {
+                const value = await BleClient.read(device.deviceId, service.uuid, char.uuid);
+                const decoder = new TextDecoder();
+                const text = decoder.decode(value);
+
+                // Manufacturer Name (0x2A29)
+                if (char.uuid.toLowerCase().includes('2a29')) {
+                  newReadableInfo.manufacturer = text;
+                }
+                // Model Number (0x2A24)
+                else if (char.uuid.toLowerCase().includes('2a24')) {
+                  newReadableInfo.modelNumber = text;
+                }
+                // Serial Number (0x2A25)
+                else if (char.uuid.toLowerCase().includes('2a25')) {
+                  newReadableInfo.serialNumber = text;
+                }
+                // Firmware Revision (0x2A26)
+                else if (char.uuid.toLowerCase().includes('2a26')) {
+                  newReadableInfo.firmwareVersion = text;
+                }
+                // Hardware Revision (0x2A27)
+                else if (char.uuid.toLowerCase().includes('2a27')) {
+                  newReadableInfo.hardwareVersion = text;
+                }
+              } catch (e) {
+                console.log("Impossible de lire une caractéristique", e);
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.log("Erreur lors de la lecture du service:", error);
+      }
+    }
+
+    setReadableInfo(newReadableInfo);
   };
 
   const disconnect = async () => {
@@ -166,8 +240,114 @@ const DeviceConnection = ({ device, onDisconnect }: DeviceConnectionProps) => {
         <>
           <Card className="p-6 bg-gradient-card shadow-soft">
             <div className="flex items-center gap-2 mb-4">
-              <Info className="w-5 h-5 text-primary" />
+              <Smartphone className="w-5 h-5 text-primary" />
               <h3 className="text-lg font-semibold">Informations de l'appareil</h3>
+            </div>
+            
+            <div className="space-y-3">
+              {/* Device Name */}
+              <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 border border-border">
+                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                  <Bluetooth className="w-5 h-5 text-primary" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs text-muted-foreground">Nom de l'appareil</p>
+                  <p className="text-base font-semibold">{device.name || "Appareil sans nom"}</p>
+                </div>
+              </div>
+
+              {/* Battery Level */}
+              {readableInfo.batteryLevel !== null && (
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 border border-border">
+                  <div className="w-10 h-10 rounded-full bg-success/10 flex items-center justify-center">
+                    <Battery className="w-5 h-5 text-success" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-xs text-muted-foreground">Niveau de batterie</p>
+                    <p className="text-base font-semibold">{readableInfo.batteryLevel}%</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Manufacturer */}
+              {readableInfo.manufacturer && (
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 border border-border">
+                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                    <Info className="w-5 h-5 text-primary" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-xs text-muted-foreground">Fabricant</p>
+                    <p className="text-base font-semibold">{readableInfo.manufacturer}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Model Number */}
+              {readableInfo.modelNumber && (
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 border border-border">
+                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                    <Cpu className="w-5 h-5 text-primary" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-xs text-muted-foreground">Modèle</p>
+                    <p className="text-base font-semibold">{readableInfo.modelNumber}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Serial Number */}
+              {readableInfo.serialNumber && (
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 border border-border">
+                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                    <Info className="w-5 h-5 text-primary" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-xs text-muted-foreground">Numéro de série</p>
+                    <p className="text-base font-mono text-sm">{readableInfo.serialNumber}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Firmware Version */}
+              {readableInfo.firmwareVersion && (
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 border border-border">
+                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                    <Zap className="w-5 h-5 text-primary" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-xs text-muted-foreground">Version logicielle</p>
+                    <p className="text-base font-mono text-sm">{readableInfo.firmwareVersion}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Hardware Version */}
+              {readableInfo.hardwareVersion && (
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 border border-border">
+                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                    <Cpu className="w-5 h-5 text-primary" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-xs text-muted-foreground">Version matérielle</p>
+                    <p className="text-base font-mono text-sm">{readableInfo.hardwareVersion}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 p-3 rounded-lg bg-muted/30 border border-border">
+              <p className="text-xs text-muted-foreground mb-1">ℹ️ Note de sécurité</p>
+              <p className="text-sm">
+                Seules les informations que l'appareil choisit de partager via Bluetooth sont visibles. 
+                Les données sensibles comme les mots de passe ne sont jamais accessibles pour des raisons de sécurité.
+              </p>
+            </div>
+          </Card>
+
+          <Card className="p-6 bg-gradient-card shadow-soft">
+            <div className="flex items-center gap-2 mb-4">
+              <Info className="w-5 h-5 text-primary" />
+              <h3 className="text-lg font-semibold">Détails techniques</h3>
             </div>
             
             <div className="grid grid-cols-2 gap-4">
