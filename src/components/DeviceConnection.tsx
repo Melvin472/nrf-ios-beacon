@@ -110,35 +110,102 @@ const DeviceConnection = ({ device, onDisconnect }: DeviceConnectionProps) => {
     }
   };
 
+  const getServiceName = (uuid: string): string => {
+    const uuidLower = uuid.toLowerCase();
+    const serviceNames: Record<string, string> = {
+      '180f': 'Batterie',
+      '180a': 'Informations appareil',
+      '1800': 'Accès générique',
+      '1801': 'Attribut générique',
+      '1805': 'Heure actuelle',
+      '1810': 'Pression artérielle',
+      '1812': 'Interface humaine (HID)',
+      '1816': 'Cyclisme',
+      '1818': 'Fréquence cardiaque',
+      '181a': 'Données environnementales',
+      '181c': 'Mesure corporelle',
+      '181d': 'Contrôle de poids',
+    };
+    
+    for (const [key, name] of Object.entries(serviceNames)) {
+      if (uuidLower.includes(key)) return name;
+    }
+    return 'Service personnalisé';
+  };
+
+  const getCharacteristicName = (uuid: string): string => {
+    const uuidLower = uuid.toLowerCase();
+    const charNames: Record<string, string> = {
+      '2a19': 'Niveau batterie',
+      '2a29': 'Fabricant',
+      '2a24': 'Numéro modèle',
+      '2a25': 'Numéro série',
+      '2a26': 'Version logicielle',
+      '2a27': 'Version matérielle',
+      '2a00': "Nom de l'appareil",
+      '2a01': 'Apparence',
+      '2a23': 'ID système',
+      '2a50': 'Caractéristiques PnP',
+    };
+    
+    for (const [key, name] of Object.entries(charNames)) {
+      if (uuidLower.includes(key)) return name;
+    }
+    return uuid.substring(0, 8);
+  };
+
   const readAllCharacteristics = async (discoveredServices: BleService[]) => {
     const dataList: string[] = [];
 
+    console.log(`📡 Lecture de ${discoveredServices.length} services...`);
+
     for (const service of discoveredServices) {
+      const serviceName = getServiceName(service.uuid);
+      console.log(`🔍 Service: ${serviceName} (${service.uuid})`);
+      
       for (const char of service.characteristics) {
+        const charName = getCharacteristicName(char.uuid);
+        
         if (char.properties.read) {
           try {
+            console.log(`  ↳ Lecture de ${charName}...`);
             const value = await BleClient.read(device.deviceId, service.uuid, char.uuid);
             const decoder = new TextDecoder();
             let text = decoder.decode(value);
             
             // Si c'est des données binaires, afficher en hexadécimal
             if (!text || text.includes('�')) {
-              const hex = Array.from(new Uint8Array(value.buffer))
+              const bytes = new Uint8Array(value.buffer);
+              const hex = Array.from(bytes)
                 .map(b => b.toString(16).padStart(2, '0'))
                 .join(' ');
-              text = `[HEX] ${hex}`;
+              
+              // Essayer de détecter le type de données
+              if (bytes.length === 1) {
+                text = `${bytes[0]} (0x${hex})`;
+              } else {
+                text = `[HEX] ${hex}`;
+              }
             }
             
-            dataList.push(`${service.uuid.substring(0, 8)}: ${text}`);
+            dataList.push(`${serviceName} - ${charName}: ${text}`);
+            console.log(`  ✓ ${charName}: ${text}`);
           } catch (e) {
-            console.log(`Impossible de lire ${char.uuid}`, e);
+            console.log(`  ✗ Impossible de lire ${charName}:`, e);
+            dataList.push(`${serviceName} - ${charName}: ⚠️ Accès refusé`);
           }
+        } else {
+          console.log(`  ⊝ ${charName}: Lecture non disponible`);
         }
       }
     }
 
+    console.log(`✓ ${dataList.length} caractéristiques lues`);
+    
     if (dataList.length > 0) {
       setReceivedData(dataList);
+    } else {
+      setReceivedData(['ℹ️ Aucune donnée lisible trouvée. Certains appareils limitent l\'accès aux données.']);
     }
   };
 
