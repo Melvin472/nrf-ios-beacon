@@ -2,7 +2,8 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Bluetooth, Unplug, Activity, Loader2, Signal, Info, Cpu, Zap, Battery, Smartphone } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Bluetooth, Unplug, Activity, Loader2, Signal, Info, Cpu, Zap, Battery, Smartphone, Edit3, Send } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { BleClient, BleDevice, BleService } from "@capacitor-community/bluetooth-le";
 import DataDisplay from "./DataDisplay";
@@ -31,6 +32,7 @@ const DeviceConnection = ({ device, onDisconnect }: DeviceConnectionProps) => {
     firmwareVersion: null as string | null,
     hardwareVersion: null as string | null,
   });
+  const [writeValues, setWriteValues] = useState<Record<string, string>>({});
   const { toast } = useToast();
 
   const connect = async () => {
@@ -152,6 +154,31 @@ const DeviceConnection = ({ device, onDisconnect }: DeviceConnectionProps) => {
       if (uuidLower.includes(key)) return name;
     }
     return uuid.substring(0, 8);
+  };
+
+  const writeCharacteristic = async (serviceUuid: string, charUuid: string, value: string) => {
+    try {
+      const encoder = new TextEncoder();
+      const uint8Array = encoder.encode(value);
+      const dataView = new DataView(uint8Array.buffer);
+      
+      await BleClient.write(device.deviceId, serviceUuid, charUuid, dataView);
+      
+      toast({
+        title: "Écriture réussie",
+        description: `Valeur "${value}" écrite avec succès`,
+      });
+      
+      // Relire la caractéristique pour voir le changement
+      await readAllCharacteristics(services);
+    } catch (error) {
+      console.error("Erreur d'écriture:", error);
+      toast({
+        title: "Erreur d'écriture",
+        description: "Impossible d'écrire dans cette caractéristique",
+        variant: "destructive",
+      });
+    }
   };
 
   const readAllCharacteristics = async (discoveredServices: BleService[]) => {
@@ -496,7 +523,7 @@ const DeviceConnection = ({ device, onDisconnect }: DeviceConnectionProps) => {
                     <CollapsibleTrigger className="w-full">
                       <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50 border border-border hover:bg-muted/70 transition-colors cursor-pointer">
                         <div className="text-left">
-                          <p className="font-medium text-sm">Service {index + 1}</p>
+                          <p className="font-medium text-sm">{getServiceName(service.uuid)}</p>
                           <p className="text-xs text-muted-foreground font-mono">{service.uuid}</p>
                         </div>
                         <Badge variant="secondary">
@@ -506,17 +533,45 @@ const DeviceConnection = ({ device, onDisconnect }: DeviceConnectionProps) => {
                     </CollapsibleTrigger>
                     <CollapsibleContent>
                       <div className="mt-2 ml-4 space-y-2">
-                        {service.characteristics.map((char) => (
-                          <div key={char.uuid} className="p-3 rounded-lg bg-muted/30 border border-border/50">
-                            <p className="text-xs font-mono text-muted-foreground mb-1">{char.uuid}</p>
-                            <div className="flex gap-2 flex-wrap">
-                              {char.properties.read && <Badge variant="outline" className="text-xs">Lecture</Badge>}
-                              {char.properties.write && <Badge variant="outline" className="text-xs">Écriture</Badge>}
-                              {char.properties.notify && <Badge variant="outline" className="text-xs">Notification</Badge>}
-                              {char.properties.indicate && <Badge variant="outline" className="text-xs">Indication</Badge>}
+                        {service.characteristics.map((char) => {
+                          const charKey = `${service.uuid}-${char.uuid}`;
+                          return (
+                            <div key={char.uuid} className="p-3 rounded-lg bg-muted/30 border border-border/50 space-y-2">
+                              <div>
+                                <p className="text-sm font-medium">{getCharacteristicName(char.uuid)}</p>
+                                <p className="text-xs font-mono text-muted-foreground">{char.uuid}</p>
+                              </div>
+                              <div className="flex gap-2 flex-wrap">
+                                {char.properties.read && <Badge variant="outline" className="text-xs">Lecture</Badge>}
+                                {char.properties.write && <Badge variant="outline" className="text-xs">Écriture</Badge>}
+                                {char.properties.notify && <Badge variant="outline" className="text-xs">Notification</Badge>}
+                                {char.properties.indicate && <Badge variant="outline" className="text-xs">Indication</Badge>}
+                              </div>
+                              
+                              {char.properties.write && (
+                                <div className="flex gap-2 mt-2">
+                                  <Input
+                                    placeholder="Valeur à écrire..."
+                                    value={writeValues[charKey] || ""}
+                                    onChange={(e) => setWriteValues(prev => ({...prev, [charKey]: e.target.value}))}
+                                    className="text-sm"
+                                  />
+                                  <Button
+                                    size="sm"
+                                    onClick={() => {
+                                      if (writeValues[charKey]) {
+                                        writeCharacteristic(service.uuid, char.uuid, writeValues[charKey]);
+                                      }
+                                    }}
+                                    disabled={!writeValues[charKey]}
+                                  >
+                                    <Send className="w-4 h-4" />
+                                  </Button>
+                                </div>
+                              )}
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </CollapsibleContent>
                   </Collapsible>
