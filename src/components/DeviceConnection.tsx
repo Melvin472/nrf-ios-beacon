@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Bluetooth, Unplug, Activity, Loader2, Signal, Info, Cpu, Zap, Battery, Smartphone, Edit3, Send } from "lucide-react";
+import { Bluetooth, Unplug, Activity, Loader2, Signal, Info, Cpu, Zap, Battery, Smartphone, Edit3, Send, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { BleClient, BleDevice, BleService } from "@capacitor-community/bluetooth-le";
 import DataDisplay from "./DataDisplay";
@@ -184,55 +184,79 @@ const DeviceConnection = ({ device, onDisconnect }: DeviceConnectionProps) => {
   const readAllCharacteristics = async (discoveredServices: BleService[]) => {
     const dataList: string[] = [];
 
-    console.log(`📡 Lecture de ${discoveredServices.length} services...`);
+    console.log(`📡 === DÉBUT SCAN COMPLET ===`);
+    console.log(`📡 Lecture de ${discoveredServices.length} services découverts...`);
+    
+    // Log tous les services d'abord
+    discoveredServices.forEach((s, i) => {
+      console.log(`Service ${i+1}/${discoveredServices.length}: ${s.uuid} (${s.characteristics.length} caractéristiques)`);
+    });
 
     for (const service of discoveredServices) {
       const serviceName = getServiceName(service.uuid);
-      console.log(`🔍 Service: ${serviceName} (${service.uuid})`);
+      console.log(`\n🔍 === SERVICE: ${serviceName} ===`);
+      console.log(`   UUID: ${service.uuid}`);
+      console.log(`   Caractéristiques: ${service.characteristics.length}`);
       
       for (const char of service.characteristics) {
         const charName = getCharacteristicName(char.uuid);
+        const props = [];
+        if (char.properties.read) props.push('READ');
+        if (char.properties.write) props.push('WRITE');
+        if (char.properties.notify) props.push('NOTIFY');
+        if (char.properties.indicate) props.push('INDICATE');
+        
+        console.log(`\n  📝 Caractéristique: ${charName}`);
+        console.log(`     UUID: ${char.uuid}`);
+        console.log(`     Propriétés: ${props.join(', ') || 'Aucune'}`);
         
         if (char.properties.read) {
           try {
-            console.log(`  ↳ Lecture de ${charName}...`);
+            console.log(`     ⏳ Tentative de lecture...`);
             const value = await BleClient.read(device.deviceId, service.uuid, char.uuid);
+            const bytes = new Uint8Array(value.buffer);
+            
+            console.log(`     📊 Données brutes (${bytes.length} bytes):`, Array.from(bytes));
+            
             const decoder = new TextDecoder();
             let text = decoder.decode(value);
             
             // Si c'est des données binaires, afficher en hexadécimal
-            if (!text || text.includes('�')) {
-              const bytes = new Uint8Array(value.buffer);
+            if (!text || text.includes('�') || bytes.some(b => b < 32 && b !== 10 && b !== 13)) {
               const hex = Array.from(bytes)
-                .map(b => b.toString(16).padStart(2, '0'))
+                .map(b => b.toString(16).padStart(2, '0').toUpperCase())
                 .join(' ');
               
               // Essayer de détecter le type de données
               if (bytes.length === 1) {
-                text = `${bytes[0]} (0x${hex})`;
+                text = `${bytes[0]} (0x${bytes[0].toString(16).toUpperCase()})`;
+              } else if (bytes.length === 2) {
+                const value16 = new DataView(bytes.buffer).getUint16(0, true);
+                text = `${value16} (0x${hex})`;
               } else {
                 text = `[HEX] ${hex}`;
               }
             }
             
             dataList.push(`${serviceName} - ${charName}: ${text}`);
-            console.log(`  ✓ ${charName}: ${text}`);
-          } catch (e) {
-            console.log(`  ✗ Impossible de lire ${charName}:`, e);
+            console.log(`     ✅ VALEUR: ${text}`);
+          } catch (e: any) {
+            console.log(`     ❌ ERREUR:`, e.message || e);
             dataList.push(`${serviceName} - ${charName}: ⚠️ Accès refusé`);
           }
         } else {
-          console.log(`  ⊝ ${charName}: Lecture non disponible`);
+          console.log(`     ⊝ Lecture non disponible (propriétés: ${props.join(', ')})`);
         }
       }
     }
 
-    console.log(`✓ ${dataList.length} caractéristiques lues`);
+    console.log(`\n✅ === FIN SCAN ===`);
+    console.log(`📊 Total: ${dataList.length} caractéristiques lues avec succès`);
     
     if (dataList.length > 0) {
       setReceivedData(dataList);
     } else {
-      setReceivedData(['ℹ️ Aucune donnée lisible trouvée. Certains appareils limitent l\'accès aux données.']);
+      setReceivedData(['ℹ️ Aucune donnée lisible trouvée. Certains appareils (iPhone) limitent fortement l\'accès aux données système via BLE pour des raisons de sécurité.']);
     }
   };
 
@@ -580,7 +604,23 @@ const DeviceConnection = ({ device, onDisconnect }: DeviceConnectionProps) => {
             </Card>
           )}
 
-          <DataDisplay data={receivedData} />
+          <Card className="p-6 bg-gradient-card shadow-soft">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Activity className="w-5 h-5 text-primary" />
+                <h3 className="text-lg font-semibold">Données reçues</h3>
+              </div>
+              <Button
+                onClick={() => readAllCharacteristics(services)}
+                variant="outline"
+                size="sm"
+              >
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Rafraîchir
+              </Button>
+            </div>
+            <DataDisplay data={receivedData} />
+          </Card>
         </>
       )}
     </div>
