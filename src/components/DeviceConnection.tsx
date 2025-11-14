@@ -138,16 +138,23 @@ const DeviceConnection = ({ device, onDisconnect }: DeviceConnectionProps) => {
   const getCharacteristicName = (uuid: string): string => {
     const uuidLower = uuid.toLowerCase();
     const charNames: Record<string, string> = {
-      '2a19': 'Niveau batterie',
-      '2a29': 'Fabricant',
-      '2a24': 'Numéro modèle',
-      '2a25': 'Numéro série',
-      '2a26': 'Version logicielle',
-      '2a27': 'Version matérielle',
-      '2a00': "Nom de l'appareil",
-      '2a01': 'Apparence',
-      '2a23': 'ID système',
-      '2a50': 'Caractéristiques PnP',
+      '2a19': '🔋 Niveau batterie',
+      '2a29': '🏭 Fabricant',
+      '2a24': '📦 Numéro modèle',
+      '2a25': '🔢 Numéro série',
+      '2a26': '💿 Version logicielle',
+      '2a27': '⚙️ Version matérielle',
+      '2a00': "📱 Nom de l'appareil",
+      '2a01': '👁️ Apparence',
+      '2a23': '🆔 ID système',
+      '2a50': '🔌 Caractéristiques PnP',
+      // Capteurs BME280
+      '2a1c': '🌡️ Température',
+      '2a6f': '💧 Humidité',
+      '2a6d': '🌪️ Pression',
+      // Capteurs MPU6050
+      '2a58': '📐 Accéléromètre',
+      '2a59': '🔄 Gyroscope',
     };
     
     for (const [key, name] of Object.entries(charNames)) {
@@ -220,16 +227,41 @@ const DeviceConnection = ({ device, onDisconnect }: DeviceConnectionProps) => {
             
             const decoder = new TextDecoder();
             let text = decoder.decode(value);
+            const charUuidLower = char.uuid.toLowerCase();
             
-            // Si c'est des données binaires, afficher en hexadécimal
-            if (!text || text.includes('�') || bytes.some(b => b < 32 && b !== 10 && b !== 13)) {
+            // Décodage intelligent selon le type de capteur
+            if (bytes.length === 4 && (charUuidLower.includes('2a1c') || charUuidLower.includes('2a6f') || charUuidLower.includes('2a6d'))) {
+              // BME280: float 32-bit (little endian)
+              const floatValue = new DataView(value.buffer).getFloat32(0, true);
+              if (charUuidLower.includes('2a1c')) {
+                text = `${floatValue.toFixed(2)} °C`;
+              } else if (charUuidLower.includes('2a6f')) {
+                text = `${floatValue.toFixed(1)} %`;
+              } else if (charUuidLower.includes('2a6d')) {
+                text = `${floatValue.toFixed(1)} hPa`;
+              }
+            } else if (bytes.length === 6 && (charUuidLower.includes('2a58') || charUuidLower.includes('2a59'))) {
+              // MPU6050: 3x int16 (big endian)
+              const dv = new DataView(value.buffer);
+              const x = dv.getInt16(0, false);
+              const y = dv.getInt16(2, false);
+              const z = dv.getInt16(4, false);
+              if (charUuidLower.includes('2a58')) {
+                text = `X:${x} Y:${y} Z:${z} (accél.)`;
+              } else {
+                text = `X:${x} Y:${y} Z:${z} (gyro)`;
+              }
+            } else if (!text || text.includes('�') || bytes.some(b => b < 32 && b !== 10 && b !== 13)) {
+              // Données binaires génériques
               const hex = Array.from(bytes)
                 .map(b => b.toString(16).padStart(2, '0').toUpperCase())
                 .join(' ');
               
-              // Essayer de détecter le type de données
               if (bytes.length === 1) {
                 text = `${bytes[0]} (0x${bytes[0].toString(16).toUpperCase()})`;
+                if (charUuidLower.includes('2a19')) {
+                  text = `${bytes[0]}%`;
+                }
               } else if (bytes.length === 2) {
                 const value16 = new DataView(bytes.buffer).getUint16(0, true);
                 text = `${value16} (0x${hex})`;
