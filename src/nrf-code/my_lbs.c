@@ -26,7 +26,7 @@
 
 #include <zephyr/logging/log.h>
 
-LOG_MODULE_DECLARE(Lesson4_Exercise1);
+LOG_MODULE_DECLARE(nRF_BME280);
 
 static bool button_state;
 static struct my_lbs_cb lbs_cb;
