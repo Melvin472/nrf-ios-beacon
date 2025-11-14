@@ -1,0 +1,15 @@
+/*
+ * Device Tree Overlay pour configurer l'I2C sur nRF52833
+ * MPU6050 connecté sur I2C0
+ */
+
+&i2c0 {
+	compatible = "nordic,nrf-twi";
+	status = "okay";
+	
+	/* Configuration des pins I2C */
+	sda-pin = <27>;  /* P0.27 */
+	scl-pin = <26>;  /* P0.26 */
+	
+	clock-frequency = <I2C_BITRATE_STANDARD>; /* 100 kHz */
+};
