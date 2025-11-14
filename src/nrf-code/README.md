@@ -1,12 +1,12 @@
-# nRF52833 + MPU6050 (GY-6180) - Code Source
+# nRF52833 + BME280 - Code Source
 
 ## 📌 Description
-Code Zephyr RTOS pour intégrer le capteur MPU6050 (accéléromètre + gyroscope) avec service BLE.
+Code Zephyr RTOS pour intégrer le capteur BME280 (température, humidité, pression) avec service BLE.
 
-## 🔌 Câblage MPU6050
+## 🔌 Câblage BME280
 
 ```
-nRF52833 DK          MPU6050 (GY-6180)
+nRF52833 DK          BME280
 -------------        ------------------
 VDD (3.3V)      -->  VCC
 GND             -->  GND
@@ -14,13 +14,15 @@ P0.26           -->  SCL
 P0.27           -->  SDA
 ```
 
+**Note**: L'adresse I2C du BME280 peut être 0x76 ou 0x77 selon le module. Par défaut, le code utilise 0x76.
+
 ## 📁 Structure des fichiers
 
 ```
 src/
 ├── main.c                  # Programme principal
 ├── my_lbs.c/h             # Service LED/Button (original)
-├── mpu6050_service.c/h    # Nouveau service BLE pour MPU6050
+├── bme280_service.c/h     # Service BLE pour BME280
 ├── CMakeLists.txt         # Configuration build
 ├── prj.conf               # Configuration Zephyr
 ├── nrf52833dk_nrf52833.overlay  # Configuration I2C
@@ -44,16 +46,22 @@ west flash
 
 ## 📡 Services BLE exposés
 
-### Service MPU6050 (UUID: 0x181A)
-- **Accéléromètre** (UUID: 0x2A58)
-  - Format: 6 bytes (3x int16 big-endian)
-  - X, Y, Z en unités brutes (-32768 à +32767)
-  - Notification activée (mise à jour toutes les 500ms)
+### Service BME280 (UUID: 0x181A - Environmental Sensing)
 
-- **Gyroscope** (UUID: 0x2A59)
-  - Format: 6 bytes (3x int16 big-endian)
-  - X, Y, Z en unités brutes
-  - Notification activée (mise à jour toutes les 500ms)
+- **Température** (UUID: 0x2A6E)
+  - Format: 2 bytes (int16 little-endian)
+  - Valeur en centièmes de °C (ex: 2350 = 23.50°C)
+  - Notification activée (mise à jour toutes les 2 secondes)
+
+- **Humidité** (UUID: 0x2A6F)
+  - Format: 2 bytes (uint16 little-endian)
+  - Valeur en centièmes de % (ex: 6543 = 65.43%)
+  - Notification activée (mise à jour toutes les 2 secondes)
+
+- **Pression** (UUID: 0x2A6D)
+  - Format: 4 bytes (uint32 little-endian)
+  - Valeur en Pascals (ex: 101325 Pa = 1013.25 hPa)
+  - Notification activée (mise à jour toutes les 2 secondes)
 
 ### Service LED/Button (original)
 - LED control (Write)
@@ -61,22 +69,28 @@ west flash
 
 ## 🔧 Configuration I2C
 - **Bus**: I2C0
-- **Adresse MPU6050**: 0x68
+- **Adresse BME280**: 0x76 (peut être 0x77)
 - **Fréquence**: 100 kHz (Standard)
 - **SCL**: P0.26
 - **SDA**: P0.27
 
-## 📊 Conversion des données brutes
+## 📊 Conversion des données
 
-### Accéléromètre
-- Plage par défaut: ±2g
-- Sensibilité: 16384 LSB/g
-- Formule: `accel_g = raw_value / 16384.0`
+### Température
+- Format BLE: centièmes de °C
+- Conversion: `temp_celsius = value / 100.0`
+- Exemple: 2350 → 23.50°C
 
-### Gyroscope
-- Plage par défaut: ±250°/s
-- Sensibilité: 131 LSB/°/s
-- Formule: `gyro_dps = raw_value / 131.0`
+### Humidité
+- Format BLE: centièmes de %
+- Conversion: `humidity_percent = value / 100.0`
+- Exemple: 6543 → 65.43%
+
+### Pression
+- Format BLE: Pascals
+- Conversion en hPa: `pressure_hpa = value / 100.0`
+- Conversion en mmHg: `pressure_mmhg = value / 133.322`
+- Exemple: 101325 Pa → 1013.25 hPa → 760 mmHg
 
 ## 🐛 Debug
 
@@ -92,17 +106,17 @@ minicom -D /dev/ttyACM0 -b 115200
 ### Vérifier la connexion I2C
 Les logs devraient afficher:
 ```
-[INF] I2C device ready
-[INF] MPU6050 initialized successfully
-[DBG] Accel: X=... Y=... Z=... | Gyro: X=... Y=... Z=...
+[INF] BME280 detected (chip ID: 0x60)
+[INF] BME280 initialized successfully
+[INF] Temp: 23.45°C | Humidity: 65.43% | Pressure: 101325 Pa
 ```
 
 ## ⚠️ Dépannage
 
-### Erreur "I2C device not ready"
+### Erreur "Invalid chip ID"
 - Vérifier le câblage (VCC, GND, SCL, SDA)
-- Vérifier que le overlay est bien présent
-- Tester l'adresse I2C (0x68 ou 0x69 si AD0 est à VCC)
+- Tester l'adresse I2C alternative (changer 0x76 en 0x77 dans main.c ligne 42)
+- Vérifier que le capteur est bien un BME280 (pas BMP280)
 
 ### Pas de données BLE
 - Vérifier que le device est bien connecté
@@ -110,16 +124,30 @@ Les logs devraient afficher:
 - Vérifier les logs série
 
 ### Données incohérentes
-- Calibrer le capteur (mettre à plat pendant l'initialisation)
 - Vérifier l'alimentation 3.3V stable
-- Réduire la fréquence de lecture si nécessaire
+- Laisser le capteur se stabiliser 5-10 secondes après démarrage
+- Vérifier que les câbles I2C ne sont pas trop longs (< 30cm recommandé)
+
+### Différence d'adresse I2C
+Si le capteur n'est pas détecté avec 0x76:
+1. Modifier `BME280_ADDR` dans main.c ligne 42 → `0x77`
+2. Recompiler et flasher
 
 ## 📱 Connexion depuis l'app React
 
-L'app détectera automatiquement le service MPU6050 et affichera:
-- 🌡️ Température (si implémentée)
-- 💧 Humidité (si implémentée)  
-- 📐 Accéléromètre avec valeurs X/Y/Z
-- 🔄 Gyroscope avec valeurs X/Y/Z
+L'app détectera automatiquement le service BME280 et affichera:
+- 🌡️ **Température** en °C avec 2 décimales
+- 💧 **Humidité** en % avec 2 décimales
+- 🔽 **Pression** en hPa avec 2 décimales
 
-Les données sont décodées automatiquement et affichées en temps réel.
+Les données sont décodées automatiquement et affichées en temps réel avec des graphiques.
+
+## 📈 Plages de mesure BME280
+
+- **Température**: -40°C à +85°C (±1°C de précision)
+- **Humidité**: 0% à 100% (±3% de précision)
+- **Pression**: 300 hPa à 1100 hPa (±1 hPa de précision)
+
+## 🔋 Consommation typique
+- Mode normal: ~3.6 µA @ 1 Hz
+- Mode sleep: 0.1 µA
