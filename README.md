@@ -1,7 +1,4 @@
-Voici un README propre, clair et pro, parfait pour ton dépôt GitHub 👇
-(Je l’ai rédigé comme un vrai projet hardware + firmware autour du NINA-B416.)
 
-⸻
 
 📡 BeaconBlock — Mini carte d’extension NINA-B416 (LEDs + Boutons + UART)
 
