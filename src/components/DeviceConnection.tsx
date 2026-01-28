@@ -1,13 +1,20 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Bluetooth, Unplug, Activity, Loader2, Signal, Info, Cpu, Zap, Battery, Smartphone, Edit3, Send, RefreshCw } from "lucide-react";
+import { Bluetooth, Unplug, Activity, Loader2, Signal, Info, Cpu, Zap, Battery, Smartphone, Edit3, Send, RefreshCw, Thermometer } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { BleClient, BleDevice, BleService } from "@capacitor-community/bluetooth-le";
 import DataDisplay from "./DataDisplay";
+import BME280Charts, { BME280Data } from "./BME280Charts";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+
+// UUIDs BME280 (Environmental Sensing Service)
+const BME280_SERVICE_UUID = "0000181a-0000-1000-8000-00805f9b34fb";
+const TEMPERATURE_CHAR_UUID = "00002a6e-0000-1000-8000-00805f9b34fb";
+const HUMIDITY_CHAR_UUID = "00002a6f-0000-1000-8000-00805f9b34fb";
+const PRESSURE_CHAR_UUID = "00002a6d-0000-1000-8000-00805f9b34fb";
 
 interface DeviceConnectionProps {
   device: BleDevice;
@@ -19,6 +26,8 @@ const DeviceConnection = ({ device, onDisconnect }: DeviceConnectionProps) => {
   const [isConnecting, setIsConnecting] = useState(false);
   const [receivedData, setReceivedData] = useState<string[]>([]);
   const [services, setServices] = useState<BleService[]>([]);
+  const [bme280Data, setBme280Data] = useState<BME280Data[]>([]);
+  const [hasBME280, setHasBME280] = useState(false);
   const [deviceDetails, setDeviceDetails] = useState({
     rssi: 0,
     servicesCount: 0,
@@ -34,6 +43,54 @@ const DeviceConnection = ({ device, onDisconnect }: DeviceConnectionProps) => {
   });
   const [writeValues, setWriteValues] = useState<Record<string, string>>({});
   const { toast } = useToast();
+
+  // Parse BME280 temperature (int16 in 0.01°C units)
+  const parseTemperature = (dataView: DataView): number => {
+    const raw = dataView.getInt16(0, true);
+    return raw / 100;
+  };
+
+  // Parse BME280 humidity (uint16 in 0.01% units)
+  const parseHumidity = (dataView: DataView): number => {
+    const raw = dataView.getUint16(0, true);
+    return raw / 100;
+  };
+
+  // Parse BME280 pressure (uint32 in Pa, convert to hPa)
+  const parsePressure = (dataView: DataView): number => {
+    const raw = dataView.getUint32(0, true);
+    return raw / 100;
+  };
+
+  // Update BME280 data
+  const updateBME280Data = useCallback((type: 'temperature' | 'humidity' | 'pressure', value: number) => {
+    setBme280Data(prev => {
+      const now = new Date();
+      const lastEntry = prev[prev.length - 1];
+      
+      // If last entry is recent (< 2s), update it
+      if (lastEntry && (now.getTime() - lastEntry.timestamp.getTime()) < 2000) {
+        const updated = [...prev];
+        updated[updated.length - 1] = {
+          ...lastEntry,
+          [type]: value,
+        };
+        return updated;
+      }
+      
+      // Create new entry
+      const newEntry: BME280Data = {
+        timestamp: now,
+        temperature: type === 'temperature' ? value : null,
+        humidity: type === 'humidity' ? value : null,
+        pressure: type === 'pressure' ? value : null,
+      };
+      
+      // Keep last 50 entries
+      const newData = [...prev, newEntry].slice(-50);
+      return newData;
+    });
+  }, []);
 
   const connect = async () => {
     try {
@@ -79,8 +136,80 @@ const DeviceConnection = ({ device, onDisconnect }: DeviceConnectionProps) => {
       // Lire toutes les données disponibles immédiatement
       await readAllCharacteristics(discoveredServices);
 
-      // Lire les caractéristiques disponibles pour notifications
+      // Check for BME280 service and subscribe to notifications
+      const bme280Service = discoveredServices.find(s => 
+        s.uuid.toLowerCase().includes('181a')
+      );
+      
+      if (bme280Service) {
+        setHasBME280(true);
+        console.log("🌡️ Service BME280 détecté!");
+        
+        // Subscribe to BME280 notifications
+        for (const char of bme280Service.characteristics) {
+          if (char.properties.notify) {
+            try {
+              const charUuidLower = char.uuid.toLowerCase();
+              
+              await BleClient.startNotifications(
+                device.deviceId,
+                bme280Service.uuid,
+                char.uuid,
+                (value) => {
+                  const dataView = new DataView(value.buffer);
+                  
+                  if (charUuidLower.includes('2a6e')) {
+                    // Temperature
+                    const temp = parseTemperature(dataView);
+                    console.log(`🌡️ Température: ${temp}°C`);
+                    updateBME280Data('temperature', temp);
+                  } else if (charUuidLower.includes('2a6f')) {
+                    // Humidity
+                    const hum = parseHumidity(dataView);
+                    console.log(`💧 Humidité: ${hum}%`);
+                    updateBME280Data('humidity', hum);
+                  } else if (charUuidLower.includes('2a6d')) {
+                    // Pressure
+                    const pres = parsePressure(dataView);
+                    console.log(`🌪️ Pression: ${pres} hPa`);
+                    updateBME280Data('pressure', pres);
+                  }
+                }
+              );
+              console.log(`✅ Notification activée pour ${char.uuid}`);
+            } catch (error) {
+              console.error("Erreur notification BME280:", error);
+            }
+          }
+        }
+        
+        // Also read initial values
+        for (const char of bme280Service.characteristics) {
+          if (char.properties.read) {
+            try {
+              const value = await BleClient.read(device.deviceId, bme280Service.uuid, char.uuid);
+              const dataView = new DataView(value.buffer);
+              const charUuidLower = char.uuid.toLowerCase();
+              
+              if (charUuidLower.includes('2a6e')) {
+                updateBME280Data('temperature', parseTemperature(dataView));
+              } else if (charUuidLower.includes('2a6f')) {
+                updateBME280Data('humidity', parseHumidity(dataView));
+              } else if (charUuidLower.includes('2a6d')) {
+                updateBME280Data('pressure', parsePressure(dataView));
+              }
+            } catch (e) {
+              console.log("Impossible de lire BME280:", e);
+            }
+          }
+        }
+      }
+
+      // Lire les caractéristiques disponibles pour notifications (autres services)
       for (const service of discoveredServices) {
+        // Skip BME280 service already handled
+        if (service.uuid.toLowerCase().includes('181a')) continue;
+        
         for (const characteristic of service.characteristics) {
           try {
             // S'abonner aux notifications si disponible
@@ -633,6 +762,25 @@ const DeviceConnection = ({ device, onDisconnect }: DeviceConnectionProps) => {
                   </Collapsible>
                 ))}
               </div>
+          </Card>
+          )}
+
+          {/* BME280 Real-time Charts */}
+          {hasBME280 && (
+            <Card className="p-6 bg-gradient-card shadow-soft">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Thermometer className="w-5 h-5 text-primary" />
+                  <h3 className="text-lg font-semibold">Capteur BME280</h3>
+                </div>
+                <Badge variant="default" className="bg-success">
+                  Temps réel
+                </Badge>
+              </div>
+              <BME280Charts 
+                data={bme280Data} 
+                latestData={bme280Data[bme280Data.length - 1] || null} 
+              />
             </Card>
           )}
 
