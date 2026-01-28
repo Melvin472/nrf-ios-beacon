@@ -2,16 +2,17 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Bluetooth, Loader2, Radio, Smartphone } from "lucide-react";
+import { Bluetooth, Loader2, Radio, Smartphone, Play } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { BleClient, BleDevice } from "@capacitor-community/bluetooth-le";
 import { Capacitor } from "@capacitor/core";
 
 interface BluetoothScannerProps {
-  onDeviceSelect: (device: BleDevice) => void;
+  onDeviceSelect: (device: BleDevice | null) => void;
+  onDemoMode?: () => void;
 }
 
-const BluetoothScanner = ({ onDeviceSelect }: BluetoothScannerProps) => {
+const BluetoothScanner = ({ onDeviceSelect, onDemoMode }: BluetoothScannerProps) => {
   const [isScanning, setIsScanning] = useState(false);
   const [devices, setDevices] = useState<BleDevice[]>([]);
   const [isNativePlatform, setIsNativePlatform] = useState(true);
@@ -21,7 +22,21 @@ const BluetoothScanner = ({ onDeviceSelect }: BluetoothScannerProps) => {
     setIsNativePlatform(Capacitor.isNativePlatform());
   }, []);
 
+  const startDemoMode = () => {
+    toast({
+      title: "Mode Démonstration",
+      description: "Connexion simulée à un nRF52833 DK",
+    });
+    onDemoMode?.();
+  };
+
   const startScan = async () => {
+    // If not on native platform, go directly to demo mode
+    if (!isNativePlatform) {
+      startDemoMode();
+      return;
+    }
+
     try {
       setIsScanning(true);
       setDevices([]);
@@ -75,11 +90,12 @@ const BluetoothScanner = ({ onDeviceSelect }: BluetoothScannerProps) => {
     } catch (error) {
       console.error("Erreur de scan détaillée:", error);
       setIsScanning(false);
+      // On error, offer demo mode
       toast({
-        title: "Erreur Bluetooth",
-        description: error instanceof Error ? error.message : "Vérifiez que le Bluetooth est activé et les permissions accordées",
-        variant: "destructive",
+        title: "Mode Démonstration activé",
+        description: "Le Bluetooth n'est pas disponible, lancement du mode démo...",
       });
+      setTimeout(() => startDemoMode(), 1000);
     }
   };
 
@@ -124,16 +140,28 @@ const BluetoothScanner = ({ onDeviceSelect }: BluetoothScannerProps) => {
         </p>
       </div>
 
-      <div className="flex justify-center">
+      <div className="flex flex-col items-center gap-3">
         {!isScanning ? (
-          <Button
-            onClick={startScan}
-            size="lg"
-            className="bg-gradient-primary hover:opacity-90 transition-opacity shadow-glow"
-          >
-            <Radio className="w-5 h-5 mr-2" />
-            Scanner les appareils
-          </Button>
+          <>
+            <Button
+              onClick={startScan}
+              size="lg"
+              className="bg-gradient-primary hover:opacity-90 transition-opacity shadow-glow"
+            >
+              <Radio className="w-5 h-5 mr-2" />
+              {isNativePlatform ? "Scanner les appareils" : "Lancer la démo"}
+            </Button>
+            {isNativePlatform && (
+              <Button
+                onClick={startDemoMode}
+                size="sm"
+                variant="outline"
+              >
+                <Play className="w-4 h-4 mr-2" />
+                Mode démonstration
+              </Button>
+            )}
+          </>
         ) : (
           <Button
             onClick={stopScan}
